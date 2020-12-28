@@ -1,0 +1,17 @@
+{{ define "SignUp" }}
+  {{ template "Header" }}
+  {{ .key }}
+  <form action="signup" method="post">
+
+    <div class="container">
+      <label for="uname"><b>Username</b></label>
+      <input type="text" placeholder="Enter Username" name="uname" required>
+
+      <label for="psw"><b>***REMOVED***word</b></label>
+      <input type="password" placeholder="Enter ***REMOVED***word" name="psw" required>
+
+      <button type="submit">Create</button>
+    </div>
+  </form>
+    {{ template "Footer" }}
+ {{ end }}
