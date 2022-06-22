@@ -9,7 +9,7 @@ import (
 
 var (
 	// key must be 16, 24 or 32 bytes long (AES-128, AES-192 or AES-256)
-	key = []byte("super-secret-key")
+	key   = []byte("super-secret-key")
 	store = sessions.NewCookieStore(key)
 )
 
@@ -45,10 +45,15 @@ func logout(w http.ResponseWriter, r *http.Request) {
 	session.Save(r, w)
 }
 
+func hello(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprintf(w, "Hello, %s!", r.URL.Path[1:])
+}
+
 func main() {
 	http.HandleFunc("/secret", secret)
 	http.HandleFunc("/login", login)
 	http.HandleFunc("/logout", logout)
+	http.HandleFunc("/hello", hello)
 
 	http.ListenAndServe(":8020", nil)
 }
