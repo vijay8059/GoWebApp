@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="RemoteTargetsManager">
+    <targets>
+      <target name="ec2-user@65.0.6.153:222" type="ssh/sftp" uuid="7a116cf8-fe99-4cdf-b294-13b164fed719">
+        <config>
+          <option name="projectRootOnTarget" value="/home/ec2-user/GoWebApp" />
+          <option name="serverName" value="ec2-user@65.0.6.153:22 key" />
+          <option name="useRsync" value="true" />
+        </config>
+        <ContributedStateBase type="GoLanguageRuntime">
+          <config>
+            <option name="goPath" value="/home/ec2-user/go" />
+            <option name="goRoot" value="/usr/bin/go" />
+            <option name="goVersion" value="go1.16.15 linux/amd64" />
+          </config>
+        </ContributedStateBase>
+      </target>
+    </targets>
+  </component>
+</project>
