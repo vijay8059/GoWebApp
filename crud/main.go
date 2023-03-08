@@ -48,7 +48,7 @@ type Employee struct {
 type User struct {
 	Id    int
 	Name  string
-	***REMOVED***Word string
+	PassWord string
 }
 
 type SessionUser struct {
@@ -60,9 +60,9 @@ type SessionUser struct {
 func dbConn() (db *sql.DB) {
 	dbDriver := "mysql"
 	dbUser := "root"
-	db***REMOVED*** := "password"
+	dbPass := "password"
 	dbName := "ToDo"
-	db, err := sql.Open(dbDriver, dbUser+":"+db***REMOVED***+"@/"+dbName)
+	db, err := sql.Open(dbDriver, dbUser+":"+dbPass+"@/"+dbName)
 	if err != nil {
 		panic(err.Error())
 	}
@@ -239,7 +239,7 @@ func SignUp(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "POST" {
 		name := r.FormValue("uname")
 		pwd := r.FormValue("psw")
-		password, _ := Hash***REMOVED***word(pwd)
+		password, _ := HashPassword(pwd)
 		insForm, err := db.Prepare("INSERT INTO User(name, password) VALUES(?,?)")
 		if err != nil {
 			panic(err.Error())
@@ -272,10 +272,10 @@ func Login(w http.ResponseWriter, r *http.Request) {
 			}
 			emp.Id = id
 			emp.Name = name
-			emp.***REMOVED***Word = password
+			emp.PassWord = password
 			break
 		}
-		isequal := Check***REMOVED***wordHash(password,emp.***REMOVED***Word)
+		isequal := CheckPasswordHash(password,emp.PassWord)
 		session, err := store.Get(r, "cookie-name")
 		if isequal {
 			session.Values["user"] =  &SessionUser{
@@ -303,13 +303,13 @@ func Login(w http.ResponseWriter, r *http.Request) {
 
 }
 
-func Hash***REMOVED***word(password string) (string, error) {
-	bytes, err := bcrypt.GenerateFrom***REMOVED***word([]byte(password), 14)
+func HashPassword(password string) (string, error) {
+	bytes, err := bcrypt.GenerateFromPassword([]byte(password), 14)
 	return string(bytes), err
 }
 
-func Check***REMOVED***wordHash(password, hash string) bool {
-	err := bcrypt.CompareHashAnd***REMOVED***word([]byte(hash), []byte(password))
+func CheckPasswordHash(password, hash string) bool {
+	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
 	return err == nil
 }
 
