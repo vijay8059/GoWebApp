@@ -11,5 +11,5 @@ require (
 	github.com/gorilla/sessions v1.2.1
 	github.com/rbcervilla/redisstore/v8 v8.0.0
 	github.com/rs/cors v1.7.0
-	golang.org/x/crypto v0.0.0-20200622213623-75b288015ac9
+	golang.org/x/crypto v0.1.0
 )
