@@ -38,7 +38,10 @@ func run() error {
 	log := logger.New(cfg.LogLevel, cfg.LogFormat).With("service", "gowebapp", "version", version)
 	slog.SetDefault(log)
 
-	srv := server.New(cfg, log)
+	srv, err := server.New(cfg, log)
+	if err != nil {
+		return err
+	}
 	started := time.Now()
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

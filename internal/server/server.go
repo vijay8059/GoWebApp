@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/GoWebApp/internal/auth"
 	"github.com/GoWebApp/internal/config"
 	"github.com/GoWebApp/internal/handler"
 	"github.com/GoWebApp/internal/middleware"
@@ -12,22 +13,40 @@ import (
 )
 
 // New returns a fully wired *http.Server.
-func New(cfg config.Config, log *slog.Logger) *http.Server {
+//
+// If cfg.JWTSecret is set, /api/v1/whoami requires a valid JWT. When it's
+// unset (typical for first-boot dev), the route still mounts but always
+// 401s — this is intentional: a misconfigured prod must fail closed.
+func New(cfg config.Config, log *slog.Logger) (*http.Server, error) {
 	r := mux.NewRouter()
 
-	// Liveness and readiness are unauthenticated and never rate-limited so
-	// orchestrators can probe even when the app is under load.
 	health := handler.NewHealth(version())
 	r.HandleFunc("/healthz", health.Live).Methods(http.MethodGet)
 	r.HandleFunc("/readyz", health.Ready).Methods(http.MethodGet)
 
-	// Application routes
 	api := r.PathPrefix("/api/v1").Subrouter()
 	api.Use(middleware.RateLimit(cfg.RateLimitRPS, cfg.RateLimitBurst))
 	api.HandleFunc("/hello", handler.Hello).Methods(http.MethodGet)
-	api.Handle("/whoami", middleware.RequireAuth(http.HandlerFunc(handler.WhoAmI))).Methods(http.MethodGet)
 
-	// Global middleware (applied outside-in: recovery -> logging -> handler)
+	protected := api.PathPrefix("").Subrouter()
+	if cfg.JWTSecret != "" {
+		verifier, err := auth.New(auth.Config{
+			Secret:   cfg.JWTSecret,
+			Issuer:   cfg.JWTIssuer,
+			Audience: cfg.JWTAudience,
+			TTL:      cfg.JWTTTL,
+		})
+		if err != nil {
+			return nil, err
+		}
+		protected.Use(middleware.RequireJWT(verifier))
+	} else {
+		// Fail-closed when no secret is configured: every protected request
+		// returns 401 instead of silently letting traffic through.
+		protected.Use(denyAll)
+	}
+	protected.HandleFunc("/whoami", handler.WhoAmI).Methods(http.MethodGet)
+
 	root := middleware.Recover(log)(middleware.RequestLogger(log)(r))
 
 	return &http.Server{
@@ -36,11 +55,13 @@ func New(cfg config.Config, log *slog.Logger) *http.Server {
 		ReadTimeout:  cfg.ReadTimeout,
 		WriteTimeout: cfg.WriteTimeout,
 		IdleTimeout:  cfg.IdleTimeout,
-	}
+	}, nil
 }
 
-// version is overridden in tests; in production it's read from the build-time
-// ldflag on the main package via runtime/debug.BuildInfo.
-func version() string {
-	return "dev"
+func denyAll(http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+	})
 }
+
+func version() string { return "dev" }

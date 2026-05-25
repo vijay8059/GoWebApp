@@ -37,6 +37,11 @@ type Config struct {
 
 	SessionAuthKey string
 	SessionEncKey  string
+
+	JWTSecret   string
+	JWTIssuer   string
+	JWTAudience string
+	JWTTTL      time.Duration
 }
 
 func Load() (Config, error) {
@@ -65,6 +70,11 @@ func Load() (Config, error) {
 
 		SessionAuthKey: getString("SESSION_AUTH_KEY", ""),
 		SessionEncKey:  getString("SESSION_ENC_KEY", ""),
+
+		JWTSecret:   getString("JWT_SECRET", ""),
+		JWTIssuer:   getString("JWT_ISSUER", "gowebapp"),
+		JWTAudience: getString("JWT_AUDIENCE", "gowebapp"),
+		JWTTTL:      getDuration("JWT_TTL", time.Hour),
 	}
 
 	if err := c.validate(); err != nil {
@@ -77,6 +87,12 @@ func (c Config) validate() error {
 	if c.Env == "production" {
 		if c.SessionAuthKey == "" {
 			return fmt.Errorf("SESSION_AUTH_KEY is required in production")
+		}
+		if c.JWTSecret == "" {
+			return fmt.Errorf("JWT_SECRET is required in production")
+		}
+		if len(c.JWTSecret) < 32 {
+			return fmt.Errorf("JWT_SECRET must be at least 32 bytes in production")
 		}
 		if c.LogFormat != "json" {
 			return fmt.Errorf("LOG_FORMAT must be json in production")

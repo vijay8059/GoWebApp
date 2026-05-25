@@ -54,6 +54,11 @@ build: ## Build a static binary into bin/.
 run: ## Run the server locally.
 	go run $(CMD_DIR)
 
+.PHONY: token
+token: ## Mint a JWT for local testing. Requires JWT_SECRET in env. Usage: make token SUB=alice
+	@JWT_SECRET=$${JWT_SECRET:?set JWT_SECRET} \
+		go run ./cmd/token -sub $${SUB:-test-user}
+
 .PHONY: docker
 docker: ## Build the Docker image.
 	docker build --build-arg VERSION=$(VERSION) -t $(DOCKER_IMG) .

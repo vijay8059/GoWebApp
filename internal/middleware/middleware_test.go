@@ -6,10 +6,27 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
+
+	"github.com/GoWebApp/internal/auth"
 )
 
 func discardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
+
+func newTestVerifier(t *testing.T) *auth.Verifier {
+	t.Helper()
+	v, err := auth.New(auth.Config{
+		Secret:   "test-secret-test-secret-test-secret",
+		Issuer:   "gowebapp-test",
+		Audience: "gowebapp",
+		TTL:      time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("auth.New: %v", err)
+	}
+	return v
 }
 
 func TestRecover_TurnsPanicInto500(t *testing.T) {
@@ -25,7 +42,7 @@ func TestRecover_TurnsPanicInto500(t *testing.T) {
 
 func TestRequestLogger_PassesThrough(t *testing.T) {
 	called := false
-	h := RequestLogger(discardLogger())(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h := RequestLogger(discardLogger())(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		called = true
 		w.WriteHeader(http.StatusTeapot)
 		_, _ = w.Write([]byte("hi"))
@@ -53,7 +70,6 @@ func TestRateLimit_BlocksAfterBurst(t *testing.T) {
 		h.ServeHTTP(rr, req)
 		statuses = append(statuses, rr.Code)
 	}
-	// First two within burst should pass, subsequent should be 429.
 	if statuses[0] != http.StatusOK || statuses[1] != http.StatusOK {
 		t.Fatalf("expected first two OK, got %v", statuses)
 	}
@@ -62,23 +78,46 @@ func TestRateLimit_BlocksAfterBurst(t *testing.T) {
 	}
 }
 
-func TestRequireAuth_Unauthorized(t *testing.T) {
-	t.Setenv("API_TOKEN", "s3cret")
-	h := RequireAuth(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-
-	rr := httptest.NewRecorder()
-	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/x", nil))
-	if rr.Code != http.StatusUnauthorized {
-		t.Fatalf("missing token: status = %d, want 401", rr.Code)
+func TestRequireJWT(t *testing.T) {
+	v := newTestVerifier(t)
+	validToken, err := v.Sign("alice")
+	if err != nil {
+		t.Fatalf("Sign: %v", err)
 	}
 
-	rr = httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/x", nil)
-	req.Header.Set("Authorization", "Bearer s3cret")
-	h.ServeHTTP(rr, req)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("valid token: status = %d, want 200", rr.Code)
+	var gotSubject string
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotSubject, _ = UserFromContext(r.Context())
+		w.WriteHeader(http.StatusOK)
+	})
+	h := RequireJWT(v)(inner)
+
+	cases := []struct {
+		name       string
+		authHeader string
+		wantStatus int
+		wantSub    string
+	}{
+		{"no header", "", http.StatusUnauthorized, ""},
+		{"wrong scheme", "Basic " + validToken, http.StatusUnauthorized, ""},
+		{"garbage token", "Bearer not-a-jwt", http.StatusUnauthorized, ""},
+		{"valid", "Bearer " + validToken, http.StatusOK, "alice"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gotSubject = ""
+			rr := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/x", nil)
+			if tc.authHeader != "" {
+				req.Header.Set("Authorization", tc.authHeader)
+			}
+			h.ServeHTTP(rr, req)
+			if rr.Code != tc.wantStatus {
+				t.Fatalf("status = %d, want %d", rr.Code, tc.wantStatus)
+			}
+			if gotSubject != tc.wantSub {
+				t.Fatalf("subject = %q, want %q", gotSubject, tc.wantSub)
+			}
+		})
 	}
 }

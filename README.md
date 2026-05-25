@@ -31,7 +31,7 @@ chain, tests with the race detector, multi-stage Docker, and a CI gate.
                 |    RequestLogger     |   structured access log
                 |      mux.Router      |
                 |        RateLimit     |   per-IP token bucket
-                |          RequireAuth |   (selected routes only)
+                |          RequireJWT  |   HS256, validated claims
                 |            Handler   |   thin: parse, call service, encode
                 +----------------------+
                           |
@@ -53,7 +53,10 @@ chain, tests with the race detector, multi-stage Docker, and a CI gate.
   infrastructure directly — they call into service packages that can be
   swapped in tests.
 - **`internal/middleware`** is the cross-cutting layer: request logging,
-  panic recovery, rate limiting, and bearer-token auth.
+  panic recovery, rate limiting, and JWT validation.
+- **`internal/auth`** issues and verifies JWTs (HS256). The running server
+  only ever calls `Verifier.Parse`; `Sign` is reserved for the
+  `cmd/token` helper and tests.
 - **`internal/config`** is the single source of truth for env vars. The
   rest of the codebase never calls `os.Getenv`, which makes configuration
   drift visible in code review.
@@ -62,13 +65,16 @@ chain, tests with the race detector, multi-stage Docker, and a CI gate.
 
 ```
 .
-├── cmd/server/              # process entrypoint (main package)
+├── cmd/
+│   ├── server/              # process entrypoint (main package)
+│   └── token/               # CLI helper: mints a JWT for local testing
 ├── internal/
+│   ├── auth/                # JWT signer + verifier (HS256)
 │   ├── config/              # typed, validated configuration
 │   ├── logger/              # slog setup (json/text, level)
 │   ├── server/              # router + middleware composition
 │   ├── handler/             # HTTP handlers (health, app)
-│   └── middleware/          # logging, recover, ratelimit, auth
+│   └── middleware/          # logging, recover, ratelimit, jwt-auth
 ├── docs/                    # ARCHITECTURE.md, INTERVIEW.md
 ├── .github/workflows/ci.yml # lint / test / build / docker
 ├── Dockerfile               # multi-stage, distroless, non-root
@@ -114,27 +120,55 @@ All runtime configuration is environment-driven (12-factor). See
 | `RATE_LIMIT_RPS`   | `50`               | per-IP token refill rate             |
 | `RATE_LIMIT_BURST` | `100`              | per-IP burst size                    |
 | `SHUTDOWN_TIMEOUT` | `15s`              | grace period for in-flight requests  |
-| `API_TOKEN`        | _empty_            | bearer token for `RequireAuth`       |
+| `JWT_SECRET`       | _empty_            | HS256 signing key; ≥32 bytes in prod |
+| `JWT_ISSUER`       | `gowebapp`         | required `iss` claim                 |
+| `JWT_AUDIENCE`     | `gowebapp`         | required `aud` claim                 |
+| `JWT_TTL`          | `1h`               | issued-token lifetime                |
 
-In `APP_ENV=production`, `config.Load` refuses to start without a
-`SESSION_AUTH_KEY` and rejects `LOG_FORMAT=text` — the kind of guardrail
-that pays for itself the first time someone copies the dev `.env` into
-prod.
+In `APP_ENV=production`, `config.Load` refuses to start without
+`SESSION_AUTH_KEY` or `JWT_SECRET`, enforces `JWT_SECRET >= 32 bytes`,
+and rejects `LOG_FORMAT=text` — the kind of guardrail that pays for
+itself the first time someone copies the dev `.env` into prod.
 
 ## HTTP API
 
-| Method | Path                | Auth | Description               |
-|--------|---------------------|------|---------------------------|
-| GET    | `/healthz`          | no   | liveness; always 200      |
-| GET    | `/readyz`           | no   | readiness; 503 when draining |
-| GET    | `/api/v1/hello`     | no   | demo handler              |
-| GET    | `/api/v1/whoami`    | yes  | requires `Authorization: Bearer …` |
+| Method | Path                | Auth | Description                         |
+|--------|---------------------|------|-------------------------------------|
+| GET    | `/healthz`          | no   | liveness; always 200                |
+| GET    | `/readyz`           | no   | readiness; 503 when draining        |
+| GET    | `/api/v1/hello`     | no   | demo handler                        |
+| GET    | `/api/v1/whoami`    | JWT  | `Authorization: Bearer <jwt>`       |
+
+### Authentication
+
+The `/api/v1/whoami` route requires a JWT signed with `JWT_SECRET`
+(HS256). On a parsed token the middleware validates signature,
+expiration, `iss`, and `aud`, then attaches the `sub` claim to the
+request context. Mismatches return a flat `401 unauthorized` — operators
+see the parse error in the structured log; clients never do.
+
+If `JWT_SECRET` is unset, the protected subrouter **fails closed**: every
+request returns 401. This is intentional — a misconfigured production
+should not silently accept traffic.
+
+Mint a test token via the included CLI:
 
 ```bash
+# token is printed to stdout
+JWT_SECRET=$(grep ^JWT_SECRET= .env | cut -d= -f2) \
+  go run ./cmd/token -sub alice -ttl 5m
+# or
+JWT_SECRET=… SUB=alice make token
+
+TOKEN=$(JWT_SECRET=… go run ./cmd/token -sub alice)
 curl -i localhost:8080/api/v1/whoami                          # 401
-curl -i -H 'Authorization: Bearer dev-token' \
-        localhost:8080/api/v1/whoami                          # 200
+curl -i -H "Authorization: Bearer $TOKEN" \
+        localhost:8080/api/v1/whoami                          # 200 {"user":"alice"}
 ```
+
+For a multi-service deployment, swap HS256 for RS256 so verifiers only
+need the public key — the `auth.Config` struct is the only thing that
+changes. See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## Testing
 
