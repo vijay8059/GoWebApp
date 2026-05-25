@@ -1,15 +1,26 @@
-# Binaries for programs and plugins
+# Build artifacts
+bin/
+release/
 *.exe
 *.exe~
 *.dll
 *.so
 *.dylib
 
-# Test binary, built with `go test -c`
+# Test + coverage
 *.test
-
-# Output of the go coverage tool, specifically when used with LiteIDE
 *.out
+coverage*
 
-# Dependency directories (remove the comment below to include it)
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Editor / OS
+.idea/
+.vscode/
+.DS_Store
+
+# Vendor (uncomment if vendoring)
 # vendor/
