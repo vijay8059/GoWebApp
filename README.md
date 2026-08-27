@@ -1,4 +1,4 @@
-# GoWebApp
+# GoWebApp    
 
 A small, production-shaped Go HTTP service. The repository is intentionally
 sized to be reviewable end-to-end in a single sitting while exercising the
